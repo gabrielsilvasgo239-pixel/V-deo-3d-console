@@ -1,0 +1,15 @@
+{
+  "name": "console-video",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "render": "node render/render.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "three": "^0.160.0"
+  }
+}

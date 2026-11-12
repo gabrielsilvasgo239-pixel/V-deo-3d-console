@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Render do vídeo</title>
+<style>
+  @font-face { font-family: 'InterV'; src: url('/fonts/Inter-Bold.otf'); font-weight: 700; }
+  @font-face { font-family: 'InterV'; src: url('/fonts/Inter-ExtraBold.otf'); font-weight: 800; }
+  html, body { margin: 0; background: #121418; overflow: hidden; }
+  #stage { position: relative; }
+  #stage canvas, #overlay { position: absolute; left: 0; top: 0; }
+  #overlay text { font-family: 'InterV', 'Montserrat', sans-serif; font-weight: 700; fill: #fff; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "/node_modules/three/build/three.module.js",
+               "three/addons/": "/node_modules/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="stage"><svg id="overlay"></svg></div>
+<script type="module" src="./engine.js"></script>
+</body>
+</html>

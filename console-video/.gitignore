@@ -1,0 +1,5 @@
+node_modules/
+frames/
+build/
+audio/*.wav
+__pycache__/
