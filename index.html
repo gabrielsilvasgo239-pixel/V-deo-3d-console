@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vídeo 3D Console</title>
+<style>
+  :root { --bg:#0b0d14; --fg:#e8ecf5; --muted:#8a93a8; --accent:#5b8cff; --panel:rgba(18,22,34,.82); }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow:hidden; }
+  #app { position:fixed; inset:0; }
+  #ui { position:fixed; left:16px; right:16px; bottom:16px; display:flex; flex-wrap:wrap; gap:8px;
+    justify-content:center; pointer-events:none; }
+  #ui > * { pointer-events:auto; }
+  button, label.btn { background:var(--panel); color:var(--fg); border:1px solid #2a3147; border-radius:10px;
+    padding:10px 14px; font-size:14px; cursor:pointer; backdrop-filter: blur(6px); }
+  button:hover, label.btn:hover { border-color:var(--accent); }
+  button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  #title { position:fixed; top:16px; left:16px; right:16px; pointer-events:none; }
+  #title h1 { margin:0; font-size:20px; letter-spacing:.5px; }
+  #title p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  input[type=file] { display:none; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<div id="title">
+  <h1>Vídeo 3D Console</h1>
+  <p>Arraste para girar · role para aproximar · carregue um vídeo para passar na TV</p>
+</div>
+<div id="ui">
+  <button id="power" class="on">⏻ Ligar/Desligar</button>
+  <button id="mode">🎮 Modo: Jogo</button>
+  <label class="btn">📁 Carregar vídeo<input id="file" type="file" accept="video/*" /></label>
+  <button id="spin">🔄 Girar câmera</button>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// ---------- Renderer / cena ----------
+const app = document.getElementById('app');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0d14);
+scene.fog = new THREE.Fog(0x0b0d14, 12, 28);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(4.5, 3.2, 7.5);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.4, 0);
+controls.enableDamping = true;
+controls.minDistance = 3;
+controls.maxDistance = 16;
+controls.maxPolarAngle = Math.PI * 0.49;
+
+// ---------- Luzes ----------
+scene.add(new THREE.HemisphereLight(0xaabbff, 0x202030, 0.5));
+const key = new THREE.DirectionalLight(0xffffff, 1.6);
+key.position.set(5, 8, 5);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, { left:-8, right:8, top:8, bottom:-8 });
+scene.add(key);
+const screenLight = new THREE.PointLight(0x5b8cff, 6, 6, 2);
+screenLight.position.set(0, 2.2, 1.2);
+scene.add(screenLight);
+
+// ---------- Chão / móvel ----------
+const floor = new THREE.Mesh(new THREE.CircleGeometry(20, 64),
+  new THREE.MeshStandardMaterial({ color: 0x161a26, roughness: 0.9 }));
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+const wood = new THREE.MeshStandardMaterial({ color: 0x3a2b22, roughness: 0.6 });
+const rack = new THREE.Mesh(new THREE.BoxGeometry(5, 0.6, 1.8), wood);
+rack.position.y = 0.3;
+rack.castShadow = rack.receiveShadow = true;
+scene.add(rack);
+
+// ---------- Tela (canvas como textura) ----------
+const SW = 512, SH = 288;
+const screenCanvas = document.createElement('canvas');
+screenCanvas.width = SW; screenCanvas.height = SH;
+const ctx = screenCanvas.getContext('2d');
+const canvasTex = new THREE.CanvasTexture(screenCanvas);
+canvasTex.colorSpace = THREE.SRGBColorSpace;
+
+const video = document.createElement('video');
+video.loop = true; video.muted = false; video.playsInline = true;
+const videoTex = new THREE.VideoTexture(video);
+videoTex.colorSpace = THREE.SRGBColorSpace;
+
+// ---------- TV ----------
+const tv = new THREE.Group();
+tv.position.set(0, 0.6, -0.3);
+scene.add(tv);
+const dark = new THREE.MeshStandardMaterial({ color: 0x111318, roughness: 0.35, metalness: 0.4 });
+const bezel = new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.0, 0.12), dark);
+bezel.position.y = 1.55; bezel.castShadow = true;
+tv.add(bezel);
+const screenMat = new THREE.MeshBasicMaterial({ map: canvasTex, toneMapped: false });
+const screen = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 1.8), screenMat);
+screen.position.set(0, 1.55, 0.061);
+tv.add(screen);
+const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.5, 16), dark);
+neck.position.y = 0.3; tv.add(neck);
+const foot = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.05, 0.5), dark);
+foot.position.y = 0.03; foot.castShadow = true; tv.add(foot);
+
+// ---------- Console (design original) ----------
+const consoleG = new THREE.Group();
+consoleG.position.set(0, 0.6, 0.5);
+scene.add(consoleG);
+const shell = new THREE.MeshPhysicalMaterial({ color: 0xf2f4f8, roughness: 0.3, clearcoat: 0.8 });
+const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.28, 0.9), shell);
+body.position.y = 0.14; body.castShadow = true;
+consoleG.add(body);
+const top = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.04, 0.7),
+  new THREE.MeshStandardMaterial({ color: 0x1a1d26, roughness: 0.2, metalness: 0.6 }));
+top.position.y = 0.3; consoleG.add(top);
+const ledMat = new THREE.MeshBasicMaterial({ color: 0x5b8cff });
+const led = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.02, 0.01), ledMat);
+led.position.set(0, 0.08, 0.451); consoleG.add(led);
+const pwrBtn = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.02, 24),
+  new THREE.MeshStandardMaterial({ color: 0x333844 }));
+pwrBtn.rotation.x = Math.PI / 2; pwrBtn.position.set(0.65, 0.18, 0.455); consoleG.add(pwrBtn);
+
+// ---------- Controle ----------
+const pad = new THREE.Group();
+pad.position.set(1.4, 0.64, 0.6);
+pad.rotation.y = -0.5;
+scene.add(pad);
+const padMat = new THREE.MeshPhysicalMaterial({ color: 0x23283a, roughness: 0.5, clearcoat: 0.4 });
+const padBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.35, 8, 16), padMat);
+padBody.rotation.z = Math.PI / 2; padBody.scale.set(1, 1, 0.45); padBody.castShadow = true;
+pad.add(padBody);
+const btnColors = [0xff5b6e, 0x5bff9c, 0x5b8cff, 0xffd25b];
+btnColors.forEach((c, i) => {
+  const b = new THREE.Mesh(new THREE.SphereGeometry(0.022, 12, 12),
+    new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.4 }));
+  const a = i * Math.PI / 2;
+  b.position.set(0.18 + Math.cos(a) * 0.045, 0.06, Math.sin(a) * 0.045);
+  pad.add(b);
+});
+const dpad = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.02, 0.03), dark);
+dpad.position.set(-0.18, 0.06, 0); pad.add(dpad);
+const dpad2 = dpad.clone(); dpad2.rotation.y = Math.PI / 2; pad.add(dpad2);
+
+// ---------- Conteúdo da tela: mini-jogo original ----------
+const game = { x: SW / 2, vy: 0, y: SH - 60, score: 0, obs: [], t: 0, stars: [] };
+for (let i = 0; i < 60; i++) game.stars.push({ x: Math.random() * SW, y: Math.random() * SH * 0.7, s: Math.random() * 2 + 0.5 });
+const keys = {};
+addEventListener('keydown', e => { keys[e.key] = true; });
+addEventListener('keyup', e => { keys[e.key] = false; });
+
+function drawGame(dt) {
+  const g = game; g.t += dt;
+  // fundo
+  const grd = ctx.createLinearGradient(0, 0, 0, SH);
+  grd.addColorStop(0, '#120c2e'); grd.addColorStop(1, '#3a1c5c');
+  ctx.fillStyle = grd; ctx.fillRect(0, 0, SW, SH);
+  ctx.fillStyle = '#fff';
+  for (const s of g.stars) { s.x -= s.s * 30 * dt; if (s.x < 0) s.x = SW; ctx.fillRect(s.x, s.y, s.s, s.s); }
+  // grade
+  ctx.strokeStyle = 'rgba(255,90,200,.5)'; ctx.lineWidth = 1;
+  for (let i = 0; i < 10; i++) { const y = SH - 40 + i * i * 0.6; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(SW, y); ctx.stroke(); }
+  // jogador (auto-pilot se não houver input)
+  const manual = keys.ArrowLeft || keys.ArrowRight || keys[' '];
+  let target = g.x;
+  if (!manual) {
+    const near = g.obs.find(o => o.y > SH - 140 && o.y < SH - 40 && Math.abs(o.x - g.x) < 40);
+    if (near) target = near.x < g.x ? g.x + 60 : g.x - 60;
+  }
+  if (keys.ArrowLeft) g.x -= 220 * dt;
+  if (keys.ArrowRight) g.x += 220 * dt;
+  if (!manual) g.x += (target - g.x) * Math.min(1, dt * 4);
+  g.x = Math.max(20, Math.min(SW - 20, g.x));
+  // obstáculos
+  if (Math.random() < dt * 1.6) g.obs.push({ x: 20 + Math.random() * (SW - 40), y: -10, v: 90 + Math.random() * 80 });
+  for (const o of g.obs) o.y += o.v * dt;
+  g.obs = g.obs.filter(o => {
+    if (Math.abs(o.x - g.x) < 18 && Math.abs(o.y - g.y) < 16) { g.score = 0; return false; }
+    if (o.y > SH + 10) { g.score++; return false; }
+    return true;
+  });
+  ctx.fillStyle = '#ffd25b';
+  for (const o of g.obs) { ctx.beginPath(); ctx.arc(o.x, o.y, 8, 0, Math.PI * 2); ctx.fill(); }
+  // nave
+  ctx.fillStyle = '#5bff9c';
+  ctx.beginPath(); ctx.moveTo(g.x, g.y - 14); ctx.lineTo(g.x - 14, g.y + 10); ctx.lineTo(g.x + 14, g.y + 10); ctx.closePath(); ctx.fill();
+  // HUD
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 18px monospace';
+  ctx.fillText('PONTOS ' + g.score, 14, 26);
+  ctx.font = '12px monospace'; ctx.fillStyle = 'rgba(255,255,255,.7)';
+  ctx.fillText(manual ? '← → para mover' : 'DEMO · use ← →', SW - 130, 24);
+  // scanlines
+  ctx.fillStyle = 'rgba(0,0,0,.12)';
+  for (let y = 0; y < SH; y += 3) ctx.fillRect(0, y, SW, 1);
+}
+
+function drawOff() { ctx.fillStyle = '#050507'; ctx.fillRect(0, 0, SW, SH); }
+
+function drawBoot(p) {
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, SW, SH);
+  ctx.globalAlpha = Math.min(1, p * 2);
+  ctx.fillStyle = '#5b8cff'; ctx.font = 'bold 40px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('NOVA·3D', SW / 2, SH / 2);
+  ctx.fillStyle = '#8a93a8'; ctx.font = '14px system-ui';
+  ctx.fillText('iniciando…', SW / 2, SH / 2 + 30);
+  ctx.textAlign = 'left'; ctx.globalAlpha = 1;
+}
+
+// ---------- Estado / UI ----------
+let powered = true, mode = 'game', bootT = 0, autoSpin = false;
+const $ = id => document.getElementById(id);
+
+function applyScreen() {
+  const useVideo = powered && mode === 'video' && video.src;
+  screenMat.map = useVideo ? videoTex : canvasTex;
+  screenMat.needsUpdate = true;
+  if (useVideo) video.play().catch(() => {}); else video.pause();
+}
+
+function setPower(on) {
+  powered = on; bootT = 0;
+  $('power').classList.toggle('on', on);
+  ledMat.color.set(on ? 0x5b8cff : 0x221111);
+  screenLight.intensity = on ? 6 : 0;
+  applyScreen();
+}
+
+$('power').onclick = () => setPower(!powered);
+$('mode').onclick = () => {
+  if (mode === 'game' && !video.src) { $('file').click(); return; }
+  mode = mode === 'game' ? 'video' : 'game';
+  $('mode').textContent = mode === 'game' ? '🎮 Modo: Jogo' : '🎬 Modo: Vídeo';
+  applyScreen();
+};
+$('file').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  if (video.src) URL.revokeObjectURL(video.src);
+  video.src = URL.createObjectURL(f);
+  mode = 'video'; $('mode').textContent = '🎬 Modo: Vídeo';
+  if (!powered) setPower(true); else applyScreen();
+};
+$('spin').onclick = () => { autoSpin = !autoSpin; controls.autoRotate = autoSpin; $('spin').classList.toggle('on', autoSpin); };
+
+// Clique no botão do console 3D liga/desliga
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+renderer.domElement.addEventListener('click', e => {
+  mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(mouse, camera);
+  if (ray.intersectObjects([pwrBtn, body]).length) setPower(!powered);
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ---------- Loop ----------
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+  if (!powered) drawOff();
+  else if (bootT < 1.5) { bootT += dt; drawBoot(bootT / 1.5); }
+  else if (mode === 'game' || !video.src) drawGame(dt);
+  if (screenMat.map === canvasTex) canvasTex.needsUpdate = true;
+  if (powered) {
+    ledMat.color.setHSL(0.62, 1, 0.5 + Math.sin(t * 2) * 0.15);
+    screenLight.intensity = 5 + Math.sin(t * 7) * 0.6;
+  }
+  pad.position.y = 0.64 + Math.sin(t * 1.5) * 0.01;
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
